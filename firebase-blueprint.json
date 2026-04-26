@@ -1,0 +1,89 @@
+{
+  "entities": {
+    "Batch": {
+      "title": "Batch",
+      "description": "Represents a training batch.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name of the batch" },
+        "startDate": { "type": "string", "format": "date-time", "description": "When the batch starts" },
+        "studentCount": { "type": "number", "description": "Cached number of students" },
+        "averageAttendance": { "type": "number", "description": "Overall attendance percentage" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "startDate"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "A student enrolled in a batch.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "batchId": { "type": "string" },
+        "attendancePercentage": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "batchId"]
+    },
+    "Session": {
+      "title": "Session",
+      "description": "One of the 12 sessions in a batch.",
+      "type": "object",
+      "properties": {
+        "batchId": { "type": "string" },
+        "sessionNumber": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "title": { "type": "string" },
+        "attendanceCount": { "type": "number" }
+      },
+      "required": ["batchId", "sessionNumber"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Attendance record for a student in a session.",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "batchId": { "type": "string" },
+        "status": { "type": "string", "enum": ["present", "absent"] },
+        "markedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "sessionId", "batchId", "status"]
+    },
+    "User": {
+      "title": "User",
+      "description": "App user roles.",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "trainer"] },
+        "email": { "type": "string" }
+      },
+      "required": ["role", "email"]
+    }
+  },
+  "firestore": {
+    "batches": {
+      "schema": "Batch",
+      "description": "Collection of all batches"
+    },
+    "students": {
+      "schema": "Student",
+      "description": "Global list of students"
+    },
+    "sessions": {
+      "schema": "Session",
+      "description": "Session tracking"
+    },
+    "attendance": {
+      "schema": "Attendance",
+      "description": "Attendance records"
+    },
+    "users": {
+        "schema": "User",
+        "description": "User profiles and roles"
+    }
+  }
+}
