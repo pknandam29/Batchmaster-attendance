@@ -214,7 +214,7 @@ export function BatchDetail() {
                     )}
                   >
                     <span className="text-[10px] uppercase font-black opacity-50">S-{session.sessionNumber}</span>
-                    <span className="font-serif text-xl">{format(new Date(session.date), 'dd')}</span>
+                    <span className="font-serif text-lg leading-none">{format(new Date(session.date), 'dd/MM')}</span>
                   </motion.button>
                 );
               })}
