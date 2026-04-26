@@ -10,24 +10,71 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   const PORT = 3000;
-
   app.use(express.json());
 
   // ── Auth ───────────────────────────────────────────────────────────────
 
   app.post("/api/login", (req, res) => {
     const { username, password } = req.body;
-    const user = db.prepare("SELECT * FROM users WHERE username = ? AND password = ?").get(username, password) as any;
-    if (!user) {
-      return res.status(401).json({ error: "Invalid username or password" });
+    const user = db.prepare("SELECT id, username, email, fullName, role, theme FROM users WHERE username = ? AND password = ?").get(username, password) as any;
+    if (!user) return res.status(401).json({ error: "Invalid username or password" });
+    db.prepare("INSERT INTO audit_log (userId, action, entity, details) VALUES (?, ?, ?, ?)").run(user.id, 'LOGIN', 'user', `User ${user.username} logged in`);
+    res.json(user);
+  });
+
+  // ── Users (Admin) ─────────────────────────────────────────────────────
+
+  app.get("/api/users", (req, res) => {
+    const users = db.prepare("SELECT id, username, email, fullName, role, theme, createdAt FROM users ORDER BY createdAt DESC").all();
+    res.json(users);
+  });
+
+  app.post("/api/users", (req, res) => {
+    const { username, password, email, fullName, role } = req.body;
+    if (!username || !password || !fullName) return res.status(400).json({ error: "Username, password, and fullName are required" });
+    try {
+      const result = db.prepare("INSERT INTO users (username, password, email, fullName, role) VALUES (?, ?, ?, ?, ?)").run(username, password, email || '', fullName, role || 'trainer');
+      const user = db.prepare("SELECT id, username, email, fullName, role, createdAt FROM users WHERE id = ?").get(result.lastInsertRowid);
+      res.json(user);
+    } catch (e: any) {
+      if (e.message?.includes('UNIQUE')) return res.status(400).json({ error: "Username already exists" });
+      res.status(500).json({ error: "Failed to create user" });
     }
-    res.json({ id: user.id, username: user.username, email: user.email, fullName: user.fullName, role: user.role });
+  });
+
+  app.put("/api/users/:id", (req, res) => {
+    const { fullName, email, role } = req.body;
+    db.prepare("UPDATE users SET fullName = ?, email = ?, role = ? WHERE id = ?").run(fullName, email, role, req.params.id);
+    const user = db.prepare("SELECT id, username, email, fullName, role, createdAt FROM users WHERE id = ?").get(req.params.id);
+    res.json(user);
+  });
+
+  app.delete("/api/users/:id", (req, res) => {
+    db.prepare("DELETE FROM users WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.put("/api/users/:id/theme", (req, res) => {
+    const { theme } = req.body;
+    db.prepare("UPDATE users SET theme = ? WHERE id = ?").run(theme, req.params.id);
+    res.json({ success: true });
   });
 
   // ── Batches ────────────────────────────────────────────────────────────
 
   app.get("/api/batches", (req, res) => {
-    const batches = db.prepare("SELECT * FROM batches ORDER BY createdAt DESC").all();
+    const includeArchived = req.query.includeArchived === 'true';
+    const search = req.query.search as string || '';
+    let query = "SELECT * FROM batches";
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (!includeArchived) { conditions.push("archived = 0"); }
+    if (search) { conditions.push("name LIKE ?"); params.push(`%${search}%`); }
+    if (conditions.length) query += " WHERE " + conditions.join(" AND ");
+    query += " ORDER BY createdAt DESC";
+
+    const batches = db.prepare(query).all(...params);
     res.json(batches);
   });
 
@@ -38,7 +85,6 @@ async function startServer() {
     const result = db.prepare("INSERT INTO batches (name, description, startDate, studentCount, averageAttendance) VALUES (?, ?, ?, 0, 0)").run(name, description || '', startDate);
     const batchId = result.lastInsertRowid;
 
-    // Auto-create 12 weekly sessions
     const insertSession = db.prepare("INSERT INTO sessions (batchId, sessionNumber, date, title, attendanceCount) VALUES (?, ?, ?, ?, 0)");
     const createSessions = db.transaction(() => {
       for (let i = 0; i < 12; i++) {
@@ -55,6 +101,12 @@ async function startServer() {
 
   app.delete("/api/batches/:id", (req, res) => {
     db.prepare("DELETE FROM batches WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.put("/api/batches/:id/archive", (req, res) => {
+    const { archived } = req.body;
+    db.prepare("UPDATE batches SET archived = ? WHERE id = ?").run(archived ? 1 : 0, req.params.id);
     res.json({ success: true });
   });
 
@@ -77,6 +129,21 @@ async function startServer() {
     res.json(student);
   });
 
+  app.get("/api/students/:id", (req, res) => {
+    const student = db.prepare("SELECT s.*, b.name as batchName FROM students s JOIN batches b ON s.batchId = b.id WHERE s.id = ?").get(req.params.id) as any;
+    if (!student) return res.status(404).json({ error: "Student not found" });
+
+    const attendance = db.prepare(`
+      SELECT a.status, a.markedAt, sess.sessionNumber, sess.date, sess.title 
+      FROM attendance a 
+      JOIN sessions sess ON a.sessionId = sess.id 
+      WHERE a.studentId = ? 
+      ORDER BY sess.sessionNumber ASC
+    `).all(req.params.id);
+
+    res.json({ ...student, attendanceHistory: attendance });
+  });
+
   // ── Sessions ───────────────────────────────────────────────────────────
 
   app.get("/api/batches/:id/sessions", (req, res) => {
@@ -86,8 +153,14 @@ async function startServer() {
 
   app.get("/api/sessions/upcoming", (req, res) => {
     const now = new Date().toISOString();
-    const sessions = db.prepare("SELECT * FROM sessions WHERE date >= ? ORDER BY date ASC LIMIT 5").all(now);
+    const sessions = db.prepare("SELECT s.*, b.name as batchName FROM sessions s JOIN batches b ON s.batchId = b.id WHERE s.date >= ? ORDER BY s.date ASC LIMIT 5").all(now);
     res.json(sessions);
+  });
+
+  app.put("/api/sessions/:id/notes", (req, res) => {
+    const { notes } = req.body;
+    db.prepare("UPDATE sessions SET notes = ? WHERE id = ?").run(notes || '', req.params.id);
+    res.json({ success: true });
   });
 
   // ── Attendance ─────────────────────────────────────────────────────────
@@ -101,35 +174,25 @@ async function startServer() {
 
   app.post("/api/attendance", (req, res) => {
     const { batchId, sessionId, studentId, status } = req.body;
-    if (!batchId || !sessionId || !studentId || !status) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
+    if (!batchId || !sessionId || !studentId || !status) return res.status(400).json({ error: "Missing required fields" });
 
     const existing = db.prepare("SELECT * FROM attendance WHERE sessionId = ? AND studentId = ?").get(sessionId, studentId) as any;
 
     const markAttendance = db.transaction(() => {
       if (!existing) {
         db.prepare("INSERT INTO attendance (batchId, sessionId, studentId, status) VALUES (?, ?, ?, ?)").run(batchId, sessionId, studentId, status);
-        if (status === 'present') {
-          db.prepare("UPDATE sessions SET attendanceCount = attendanceCount + 1 WHERE id = ?").run(sessionId);
-        }
+        if (status === 'present') db.prepare("UPDATE sessions SET attendanceCount = attendanceCount + 1 WHERE id = ?").run(sessionId);
       } else {
         if (existing.status === status) return;
         db.prepare("UPDATE attendance SET status = ?, markedAt = datetime('now') WHERE id = ?").run(status, existing.id);
-        if (status === 'present') {
-          db.prepare("UPDATE sessions SET attendanceCount = attendanceCount + 1 WHERE id = ?").run(sessionId);
-        } else {
-          db.prepare("UPDATE sessions SET attendanceCount = MAX(0, attendanceCount - 1) WHERE id = ?").run(sessionId);
-        }
+        if (status === 'present') db.prepare("UPDATE sessions SET attendanceCount = attendanceCount + 1 WHERE id = ?").run(sessionId);
+        else db.prepare("UPDATE sessions SET attendanceCount = MAX(0, attendanceCount - 1) WHERE id = ?").run(sessionId);
       }
 
-      // Update student attendance percentage
       const totalSessions = (db.prepare("SELECT COUNT(*) as cnt FROM sessions WHERE batchId = ?").get(batchId) as any).cnt || 12;
       const presentCount = (db.prepare("SELECT COUNT(*) as cnt FROM attendance WHERE studentId = ? AND batchId = ? AND status = 'present'").get(studentId, batchId) as any).cnt;
-      const percentage = (presentCount / totalSessions) * 100;
-      db.prepare("UPDATE students SET attendancePercentage = ? WHERE id = ?").run(percentage, studentId);
+      db.prepare("UPDATE students SET attendancePercentage = ? WHERE id = ?").run((presentCount / totalSessions) * 100, studentId);
 
-      // Update batch average attendance
       const avgResult = db.prepare("SELECT AVG(attendancePercentage) as avg FROM students WHERE batchId = ?").get(batchId) as any;
       db.prepare("UPDATE batches SET averageAttendance = ? WHERE id = ?").run(avgResult.avg || 0, batchId);
     });
@@ -138,14 +201,101 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.post("/api/attendance/bulk", (req, res) => {
+    const { batchId, sessionId, studentIds, status } = req.body;
+    if (!batchId || !sessionId || !studentIds?.length || !status) return res.status(400).json({ error: "Missing fields" });
+
+    const bulkMark = db.transaction(() => {
+      for (const studentId of studentIds) {
+        const existing = db.prepare("SELECT * FROM attendance WHERE sessionId = ? AND studentId = ?").get(sessionId, studentId) as any;
+        if (!existing) {
+          db.prepare("INSERT INTO attendance (batchId, sessionId, studentId, status) VALUES (?, ?, ?, ?)").run(batchId, sessionId, studentId, status);
+        } else if (existing.status !== status) {
+          db.prepare("UPDATE attendance SET status = ?, markedAt = datetime('now') WHERE id = ?").run(status, existing.id);
+        }
+      }
+      // Recalculate session attendance count
+      const presentCount = (db.prepare("SELECT COUNT(*) as cnt FROM attendance WHERE sessionId = ? AND status = 'present'").get(sessionId) as any).cnt;
+      db.prepare("UPDATE sessions SET attendanceCount = ? WHERE id = ?").run(presentCount, sessionId);
+
+      // Recalculate student percentages
+      const totalSessions = (db.prepare("SELECT COUNT(*) as cnt FROM sessions WHERE batchId = ?").get(batchId) as any).cnt || 12;
+      for (const studentId of studentIds) {
+        const pc = (db.prepare("SELECT COUNT(*) as cnt FROM attendance WHERE studentId = ? AND batchId = ? AND status = 'present'").get(studentId, batchId) as any).cnt;
+        db.prepare("UPDATE students SET attendancePercentage = ? WHERE id = ?").run((pc / totalSessions) * 100, studentId);
+      }
+      const avgResult = db.prepare("SELECT AVG(attendancePercentage) as avg FROM students WHERE batchId = ?").get(batchId) as any;
+      db.prepare("UPDATE batches SET averageAttendance = ? WHERE id = ?").run(avgResult.avg || 0, batchId);
+    });
+
+    bulkMark();
+    res.json({ success: true });
+  });
+
+  // ── Dashboard Stats ────────────────────────────────────────────────────
+
+  app.get("/api/dashboard/alerts", (req, res) => {
+    const lowAttendanceStudents = db.prepare(`
+      SELECT s.id, s.name, s.attendancePercentage, s.batchId, b.name as batchName 
+      FROM students s JOIN batches b ON s.batchId = b.id 
+      WHERE s.attendancePercentage < 75 AND b.archived = 0
+      ORDER BY s.attendancePercentage ASC LIMIT 10
+    `).all();
+
+    const todaySessions = db.prepare(`
+      SELECT s.*, b.name as batchName FROM sessions s 
+      JOIN batches b ON s.batchId = b.id 
+      WHERE date(s.date) = date('now') AND b.archived = 0
+    `).all();
+
+    const nearingCompletion = db.prepare(`
+      SELECT b.id, b.name, COUNT(s.id) as totalSessions,
+        SUM(CASE WHEN date(s.date) <= date('now') THEN 1 ELSE 0 END) as completedSessions
+      FROM batches b JOIN sessions s ON b.id = s.batchId
+      WHERE b.archived = 0
+      GROUP BY b.id HAVING completedSessions >= 10
+    `).all();
+
+    res.json({ lowAttendanceStudents, todaySessions, nearingCompletion });
+  });
+
+  app.get("/api/dashboard/trends", (req, res) => {
+    const trends = db.prepare(`
+      SELECT 
+        strftime('%Y-%W', s.date) as week,
+        ROUND(AVG(CASE WHEN a.status = 'present' THEN 100.0 ELSE 0.0 END), 1) as avgAttendance,
+        COUNT(DISTINCT a.studentId) as totalStudents
+      FROM attendance a
+      JOIN sessions s ON a.sessionId = s.id
+      JOIN batches b ON a.batchId = b.id
+      WHERE b.archived = 0
+      GROUP BY week
+      ORDER BY week DESC
+      LIMIT 12
+    `).all();
+    res.json(trends.reverse());
+  });
+
+  // ── Audit Log ──────────────────────────────────────────────────────────
+
+  app.get("/api/audit-log", (req, res) => {
+    const logs = db.prepare(`
+      SELECT al.*, u.fullName as userName 
+      FROM audit_log al 
+      LEFT JOIN users u ON al.userId = u.id 
+      ORDER BY al.createdAt DESC LIMIT 50
+    `).all();
+    res.json(logs);
+  });
+
   // ── Seed ───────────────────────────────────────────────────────────────
 
   app.post("/api/seed", (req, res) => {
-    const batchNames = ['Web Design Basics', 'Advanced React', 'Node.js Mastery', 'UI/UX Principles', 'Data Visualization'];
+    const batchNames = ['Python Full Stack', 'Machine Learning', 'Cloud DevOps', 'Mobile App Dev', 'Cybersecurity'];
     const studentNames = [
-      'Emma Watson', 'James Bond', 'Sara Connor', 'John Wick', 'Luke Skywalker',
-      'Leia Organa', 'Tony Stark', 'Bruce Wayne', 'Peter Parker', 'Diana Prince',
-      'Clark Kent', 'Barry Allen', 'Arthur Curry', 'Victor Stone', 'Natasha Romanoff'
+      'Alice Johnson', 'Bob Smith', 'Charlie Brown', 'Daisy Miller', 'Edward Norton',
+      'Fiona Apple', 'George Lucas', 'Hannah Montana', 'Isaac Newton', 'Julia Roberts',
+      'Kevin Hart', 'Lisa Simpson', 'Mike Tyson', 'Nancy Drew', 'Oscar Wilde'
     ];
 
     const insertBatch = db.prepare("INSERT INTO batches (name, description, startDate, studentCount, averageAttendance) VALUES (?, ?, ?, 15, ?)");
@@ -171,7 +321,6 @@ async function startServer() {
           const studentAttendance = Math.floor(Math.random() * 30) + 70;
           const stResult = insertStudent.run(sName, `${sName.toLowerCase().replace(' ', '.')}@example.com`, batchId, studentAttendance);
           const studentId = stResult.lastInsertRowid as number;
-
           for (const sId of sessionIds) {
             insertAttendance.run(batchId, sId, studentId, Math.random() > 0.15 ? 'present' : 'absent');
           }
@@ -185,29 +334,20 @@ async function startServer() {
 
   // ── Health ─────────────────────────────────────────────────────────────
 
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
-  });
+  app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 
   // ── Vite / Static ─────────────────────────────────────────────────────
 
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  app.listen(PORT, "0.0.0.0", () => console.log(`Server running on http://localhost:${PORT}`));
 }
 
 startServer();

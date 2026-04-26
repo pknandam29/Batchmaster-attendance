@@ -1,12 +1,15 @@
 import { useEffect, useState, useCallback } from 'react';
 
-export function useBatches() {
+export function useBatches(search?: string, includeArchived?: boolean) {
   const [batches, setBatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchBatches = useCallback(async () => {
     try {
-      const res = await fetch('/api/batches');
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      if (includeArchived) params.set('includeArchived', 'true');
+      const res = await fetch(`/api/batches?${params}`);
       const data = await res.json();
       setBatches(data);
     } catch (err) {
@@ -14,11 +17,9 @@ export function useBatches() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [search, includeArchived]);
 
-  useEffect(() => {
-    fetchBatches();
-  }, [fetchBatches]);
+  useEffect(() => { fetchBatches(); }, [fetchBatches]);
 
   return { batches, loading, refresh: fetchBatches };
 }
@@ -31,19 +32,12 @@ export function useBatchStudents(batchId?: string | number) {
     if (!batchId) return;
     try {
       const res = await fetch(`/api/batches/${batchId}/students`);
-      const data = await res.json();
-      setStudents(data);
-    } catch (err) {
-      console.error('Failed to fetch students:', err);
-    } finally {
-      setLoading(false);
-    }
+      setStudents(await res.json());
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
   }, [batchId]);
 
-  useEffect(() => {
-    fetchStudents();
-  }, [fetchStudents]);
-
+  useEffect(() => { fetchStudents(); }, [fetchStudents]);
   return { students, loading, refresh: fetchStudents };
 }
 
@@ -55,19 +49,12 @@ export function useBatchSessions(batchId?: string | number) {
     if (!batchId) return;
     try {
       const res = await fetch(`/api/batches/${batchId}/sessions`);
-      const data = await res.json();
-      setSessions(data);
-    } catch (err) {
-      console.error('Failed to fetch sessions:', err);
-    } finally {
-      setLoading(false);
-    }
+      setSessions(await res.json());
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
   }, [batchId]);
 
-  useEffect(() => {
-    fetchSessions();
-  }, [fetchSessions]);
-
+  useEffect(() => { fetchSessions(); }, [fetchSessions]);
   return { sessions, loading, refresh: fetchSessions };
 }
 
@@ -76,19 +63,54 @@ export function useUpcomingSessions(count: number = 5) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchUpcoming = async () => {
-      try {
-        const res = await fetch('/api/sessions/upcoming');
-        const data = await res.json();
-        setSessions(data.slice(0, count));
-      } catch (err) {
-        console.error('Failed to fetch upcoming sessions:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchUpcoming();
+    fetch('/api/sessions/upcoming').then(r => r.json()).then(d => setSessions(d.slice(0, count))).catch(console.error).finally(() => setLoading(false));
   }, [count]);
 
   return { sessions, loading };
+}
+
+export function useDashboardAlerts() {
+  const [alerts, setAlerts] = useState<any>({ lowAttendanceStudents: [], todaySessions: [], nearingCompletion: [] });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/dashboard/alerts').then(r => r.json()).then(setAlerts).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
+  return { alerts, loading };
+}
+
+export function useDashboardTrends() {
+  const [trends, setTrends] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/dashboard/trends').then(r => r.json()).then(setTrends).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
+  return { trends, loading };
+}
+
+export function useAuditLog() {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(() => {
+    fetch('/api/audit-log').then(r => r.json()).then(setLogs).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+  return { logs, loading, refresh };
+}
+
+export function useUsers() {
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(() => {
+    fetch('/api/users').then(r => r.json()).then(setUsers).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+  return { users, loading, refresh };
 }

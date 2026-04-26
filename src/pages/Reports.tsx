@@ -1,24 +1,77 @@
 import { useBatches } from '../hooks/useData';
 import { motion } from 'motion/react';
-import { FileBox, Download, TrendingUp, AlertTriangle } from 'lucide-react';
+import { FileBox, Download, TrendingUp, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 import { cn, formatPercent } from '../lib/utils';
 import { toast } from 'react-hot-toast';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 export function Reports() {
   const { batches, loading } = useBatches();
-
   const lowAttendanceBatches = batches.filter(b => (b.averageAttendance || 0) < 75);
+
+  const handleGeneratePDF = () => {
+    if (batches.length === 0) return toast.error('No data to export');
+    const doc = new jsPDF();
+    doc.setFont('times', 'bold');
+    doc.setFontSize(22);
+    doc.text('Cohort - Global Attendance Report', 14, 20);
+    doc.setFontSize(12);
+    doc.setFont('times', 'normal');
+    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30);
+
+    const tableData = batches.map(b => [
+      b.name,
+      b.studentCount || 0,
+      new Date(b.startDate).toLocaleDateString(),
+      `${(b.averageAttendance || 0).toFixed(1)}%`,
+      b.archived ? 'Archived' : 'Active'
+    ]);
+
+    autoTable(doc, {
+      startY: 40,
+      head: [['Batch Name', 'Students', 'Start Date', 'Avg Attendance', 'Status']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [90, 90, 64] }, // #5A5A40
+    });
+
+    doc.save(`Cohort_Report_${new Date().getTime()}.pdf`);
+    toast.success('Global PDF downloaded successfully!');
+  };
+
+  const handleDownloadCSV = () => {
+    if (batches.length === 0) return toast.error('No data to export');
+    
+    const worksheetData = batches.map(b => ({
+      'Batch Name': b.name,
+      'Description': b.description,
+      'Students': b.studentCount || 0,
+      'Start Date': new Date(b.startDate).toLocaleDateString(),
+      'Average Attendance (%)': (b.averageAttendance || 0).toFixed(1),
+      'Status': b.archived ? 'Archived' : 'Active',
+      'Created At': new Date(b.createdAt).toLocaleDateString()
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(worksheetData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Batches");
+    
+    XLSX.writeFile(workbook, `Cohort_Export_${new Date().getTime()}.xlsx`);
+    toast.success('Spreadsheet downloaded successfully!');
+  };
 
   return (
     <div className="space-y-10">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="font-serif text-5xl text-[#1a1a1a] mb-2 tracking-tight">Institutional Reports</h1>
           <p className="text-gray-500 font-sans tracking-wide uppercase text-xs font-bold">Deep analytics & compliance tracking</p>
         </div>
         <button 
-          onClick={() => toast.success('Global PDF generated and downloaded successfully!')}
-          className="px-6 py-3 bg-[#5A5A40] text-white rounded-2xl flex items-center gap-2 hover:bg-[#4a4a35] transition-all font-bold"
+          onClick={handleGeneratePDF}
+          className="px-6 py-3 bg-[#5A5A40] text-white rounded-2xl flex items-center gap-2 hover:bg-[#4a4a35] transition-all font-bold shadow-lg shadow-[#5A5A4020]"
         >
           <Download size={20} /> Generate Global PDF
         </button>
@@ -36,22 +89,13 @@ export function Reports() {
                     <p className="font-bold text-[#1a1a1a]">{batch.name}</p>
                     <p className="text-[10px] uppercase font-bold text-gray-400">{batch.studentCount || 0} Students enrolled</p>
                   </div>
-                  <p className={cn(
-                    "font-serif text-2xl",
-                    (batch.averageAttendance || 0) < 75 ? "text-red-500" : "text-emerald-600"
-                  )}>
+                  <p className={cn("font-serif text-2xl", (batch.averageAttendance || 0) < 75 ? "text-red-500" : "text-emerald-600")}>
                     {formatPercent(batch.averageAttendance)}
                   </p>
                 </div>
                 <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${batch.averageAttendance || 0}%` }}
-                    className={cn(
-                      "h-full transition-all duration-1000",
-                      (batch.averageAttendance || 0) < 75 ? "bg-red-500" : "bg-[#5A5A40]"
-                    )}
-                  />
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${batch.averageAttendance || 0}%` }}
+                    className={cn("h-full transition-all duration-1000", (batch.averageAttendance || 0) < 75 ? "bg-red-500" : "bg-[#5A5A40]")} />
                 </div>
               </div>
             ))}
@@ -87,13 +131,10 @@ export function Reports() {
           <div className="bg-emerald-50 p-10 rounded-[40px] border border-emerald-100">
             <h3 className="font-serif text-xl text-emerald-900 mb-4">Export Summary</h3>
             <p className="text-sm text-emerald-700 leading-relaxed mb-6">
-              Download the current attendance summaries, session logs, and student performance metrics in a CSV format compatible with standard ERP systems.
+              Download the current attendance summaries, session logs, and student performance metrics in a standard Excel spreadsheet format.
             </p>
-            <button 
-              onClick={() => toast.success('CSV summary downloaded successfully!')}
-              className="flex items-center gap-2 font-bold text-xs uppercase tracking-widest text-emerald-900 hover:gap-3 transition-all"
-            >
-              Download CSV <Download size={14} />
+            <button onClick={handleDownloadCSV} className="flex items-center gap-2 font-bold text-xs uppercase tracking-widest text-emerald-900 hover:gap-3 transition-all">
+              <FileSpreadsheet size={16} /> Download Excel
             </button>
           </div>
         </section>

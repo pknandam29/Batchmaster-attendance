@@ -6,6 +6,9 @@ import { Batches } from './pages/Batches';
 import { BatchDetail } from './pages/BatchDetail';
 import { Reports } from './pages/Reports';
 import { Login } from './pages/Login';
+import { StudentDetail } from './pages/StudentDetail';
+import { UserManagement } from './pages/UserManagement';
+import { AuditLog } from './pages/AuditLog';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Toaster } from 'react-hot-toast';
 
@@ -32,7 +35,10 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="batches" element={<Batches />} />
             <Route path="batches/:id" element={<BatchDetail />} />
+            <Route path="students/:id" element={<StudentDetail />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="admin/users" element={<UserManagement />} />
+            <Route path="admin/audit" element={<AuditLog />} />
           </Route>
         </Routes>
         <Toaster position="top-right" />
