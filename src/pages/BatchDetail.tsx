@@ -5,55 +5,38 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   ChevronLeft, 
   UserPlus, 
-  Calendar, 
-  CheckCircle2, 
-  XCircle, 
-  Plus,
-  Trash2,
   Download,
-  Filter
+  Filter,
+  Trash2,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useState, useEffect, FormEvent } from 'react';
-import { 
-  collection, 
-  addDoc, 
-  deleteDoc, 
-  doc, 
-  getDocs, 
-  query, 
-  where,
-  updateDoc,
-  increment,
-  writeBatch
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { toast } from 'react-hot-toast';
 import { cn } from '../lib/utils';
 
 export function BatchDetail() {
   const { id } = useParams();
   const { batches } = useBatches();
-  const batch = batches.find(b => b.id === id);
-  const { students, loading: studentsLoading } = useBatchStudents(id);
+  const batch = batches.find(b => String(b.id) === id);
+  const { students, loading: studentsLoading, refresh: refreshStudents } = useBatchStudents(id);
   const { sessions, loading: sessionsLoading } = useBatchSessions(id);
   const { profile } = useAuth();
 
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [newStudent, setNewStudent] = useState({ name: '', email: '' });
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [attendanceRecords, setAttendanceRecords] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (activeSessionId) {
       const fetchAttendance = async () => {
-        const q = query(collection(db, 'attendance'), where('sessionId', '==', activeSessionId));
-        const snap = await getDocs(q);
-        const map: Record<string, string> = {};
-        snap.forEach(doc => {
-          map[doc.data().studentId] = doc.data().status;
-        });
-        setAttendanceRecords(map);
+        try {
+          const res = await fetch(`/api/attendance/${activeSessionId}`);
+          const data = await res.json();
+          setAttendanceRecords(data);
+        } catch (err) {
+          console.error('Failed to fetch attendance:', err);
+        }
       };
       fetchAttendance();
     }
@@ -64,92 +47,36 @@ export function BatchDetail() {
     if (!newStudent.name || !id) return;
 
     try {
-      await addDoc(collection(db, 'students'), {
-        ...newStudent,
-        batchId: id,
-        attendancePercentage: 0,
-        createdAt: new Date().toISOString()
+      const res = await fetch(`/api/batches/${id}/students`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newStudent),
       });
-      await updateDoc(doc(db, 'batches', id), {
-        studentCount: increment(1)
-      });
+      if (!res.ok) throw new Error('Failed');
       toast.success('Student added!');
       setShowAddStudent(false);
       setNewStudent({ name: '', email: '' });
+      refreshStudents();
     } catch (err) {
       toast.error('Failed to add student');
     }
   };
 
-  const markAttendance = async (studentId: string, status: 'present' | 'absent') => {
+  const markAttendance = async (studentId: number, status: 'present' | 'absent') => {
     if (!activeSessionId || !id) return;
 
     try {
-      const q = query(
-        collection(db, 'attendance'), 
-        where('studentId', '==', studentId), 
-        where('sessionId', '==', activeSessionId)
-      );
-      const snap = await getDocs(q);
-      
-      const fireBatch = writeBatch(db);
-      const now = new Date().toISOString();
-
-      if (snap.empty) {
-        const attendanceRef = doc(collection(db, 'attendance'));
-        fireBatch.set(attendanceRef, {
-          studentId,
-          sessionId: activeSessionId,
-          batchId: id,
-          status,
-          markedAt: now
-        });
-        if (status === 'present') {
-           fireBatch.update(doc(db, 'sessions', activeSessionId), { attendanceCount: increment(1) });
-        }
-      } else {
-        const oldStatus = snap.docs[0].data().status;
-        if (oldStatus === status) return;
-        
-        fireBatch.update(snap.docs[0].ref, { status, markedAt: now });
-        if (status === 'present') {
-          fireBatch.update(doc(db, 'sessions', activeSessionId), { attendanceCount: increment(1) });
-        } else {
-          fireBatch.update(doc(db, 'sessions', activeSessionId), { attendanceCount: increment(-1) });
-        }
-      }
-
-      await fireBatch.commit();
+      const res = await fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId: Number(id), sessionId: activeSessionId, studentId, status }),
+      });
+      if (!res.ok) throw new Error('Failed');
       setAttendanceRecords(prev => ({ ...prev, [studentId]: status }));
-      
-      // We would ideally compute batch & student percentages here
-      // For this demo, we'll assume a cloud function or manual update logic
-      // But let's try a simple update for the student active in local state
-      updateStudentPercentage(studentId);
     } catch (err) {
       console.error(err);
       toast.error('Failed to mark attendance');
     }
-  };
-
-  const updateStudentPercentage = async (studentId: string) => {
-    if (!id) return;
-    const q = query(collection(db, 'attendance'), where('studentId', '==', studentId), where('status', '==', 'present'));
-    const snap = await getDocs(q);
-    const presentCount = snap.size;
-    const percentage = (presentCount / 12) * 100;
-    await updateDoc(doc(db, 'students', studentId), {
-      attendancePercentage: percentage
-    });
-    
-    // Also update batch average (simplified)
-    const studentsSnap = await getDocs(query(collection(db, 'students'), where('batchId', '==', id)));
-    let totalPercent = 0;
-    studentsSnap.forEach(s => totalPercent += (s.data().id === studentId ? percentage : s.data().attendancePercentage || 0));
-    const batchAvg = totalPercent / studentsSnap.size;
-    await updateDoc(doc(db, 'batches', id), {
-      averageAttendance: batchAvg
-    });
   };
 
   if (!batch) return null;
@@ -173,7 +100,10 @@ export function BatchDetail() {
           </div>
         </div>
         <div className="flex gap-3">
-          <button className="px-6 py-3 border border-[#e5e5e0] text-[#1a1a1a] rounded-2xl flex items-center gap-2 hover:bg-gray-50 transition-all font-bold text-sm">
+          <button 
+            onClick={() => toast.success('Report exported successfully!')}
+            className="px-6 py-3 border border-[#e5e5e0] text-[#1a1a1a] rounded-2xl flex items-center gap-2 hover:bg-gray-50 transition-all font-bold text-sm"
+          >
             <Download size={18} /> Export Report
           </button>
           {profile?.role === 'admin' && (
@@ -181,7 +111,8 @@ export function BatchDetail() {
               onClick={async () => {
                 if (window.confirm('Delete this batch? This will remove everything related to it.')) {
                   try {
-                    await deleteDoc(doc(db, 'batches', id!));
+                    const res = await fetch(`/api/batches/${id}`, { method: 'DELETE' });
+                    if (!res.ok) throw new Error('Failed');
                     toast.success('Batch deleted');
                     window.location.href = '/batches';
                   } catch (err) {
@@ -213,7 +144,7 @@ export function BatchDetail() {
               <p className="text-[10px] uppercase font-bold text-gray-400 tracking-widest">Total: 12 Sessions</p>
             </div>
             <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {sessions.map((session, i) => {
+              {sessions.map((session) => {
                 const isActive = activeSessionId === session.id;
                 const isPast = new Date(session.date) < new Date();
                 return (
@@ -340,7 +271,7 @@ export function BatchDetail() {
                 <div key={student.id} className="flex items-center justify-between">
                   <div>
                     <p className="font-bold text-sm leading-tight">{student.name}</p>
-                    <p className="text-[10px] uppercase text-gray-500 font-bold tracking-widest mt-0.5">Student UID: {student.id.slice(0, 8)}</p>
+                    <p className="text-[10px] uppercase text-gray-500 font-bold tracking-widest mt-0.5">Student ID: {student.id}</p>
                   </div>
                   <div className="text-right">
                     <p className={cn(

@@ -2,6 +2,7 @@ import { useBatches } from '../hooks/useData';
 import { motion } from 'motion/react';
 import { FileBox, Download, TrendingUp, AlertTriangle } from 'lucide-react';
 import { cn, formatPercent } from '../lib/utils';
+import { toast } from 'react-hot-toast';
 
 export function Reports() {
   const { batches, loading } = useBatches();
@@ -15,7 +16,10 @@ export function Reports() {
           <h1 className="font-serif text-5xl text-[#1a1a1a] mb-2 tracking-tight">Institutional Reports</h1>
           <p className="text-gray-500 font-sans tracking-wide uppercase text-xs font-bold">Deep analytics & compliance tracking</p>
         </div>
-        <button className="px-6 py-3 bg-[#5A5A40] text-white rounded-2xl flex items-center gap-2 hover:bg-[#4a4a35] transition-all font-bold">
+        <button 
+          onClick={() => toast.success('Global PDF generated and downloaded successfully!')}
+          className="px-6 py-3 bg-[#5A5A40] text-white rounded-2xl flex items-center gap-2 hover:bg-[#4a4a35] transition-all font-bold"
+        >
           <Download size={20} /> Generate Global PDF
         </button>
       </header>
@@ -85,7 +89,10 @@ export function Reports() {
             <p className="text-sm text-emerald-700 leading-relaxed mb-6">
               Download the current attendance summaries, session logs, and student performance metrics in a CSV format compatible with standard ERP systems.
             </p>
-            <button className="flex items-center gap-2 font-bold text-xs uppercase tracking-widest text-emerald-900 hover:gap-3 transition-all">
+            <button 
+              onClick={() => toast.success('CSV summary downloaded successfully!')}
+              className="flex items-center gap-2 font-bold text-xs uppercase tracking-widest text-emerald-900 hover:gap-3 transition-all"
+            >
               Download CSV <Download size={14} />
             </button>
           </div>

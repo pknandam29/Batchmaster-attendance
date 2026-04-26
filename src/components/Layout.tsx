@@ -28,11 +28,11 @@ export function Layout() {
         <div className="p-8">
           <Link to="/" className="flex items-center gap-3">
             <div className="w-10 h-10 bg-[#5A5A40] rounded-xl flex items-center justify-center">
-              <span className="text-white font-serif text-xl font-bold">B</span>
+              <span className="text-white font-serif text-xl font-bold">C</span>
             </div>
             <div>
-              <h2 className="font-serif text-xl text-[#1a1a1a]">BatchMaster</h2>
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Enterprise Ed.</p>
+              <h2 className="font-serif text-xl text-[#1a1a1a]">Cohort</h2>
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Attendance Tracker</p>
             </div>
           </Link>
         </div>

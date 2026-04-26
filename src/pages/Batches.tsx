@@ -7,23 +7,18 @@ import {
   Calendar, 
   Plus, 
   ArrowUpRight,
-  MoreVertical,
   Trash2,
-  Clock
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { useState, FormEvent } from 'react';
-import { collection, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { toast } from 'react-hot-toast';
 
 export function Batches() {
-  const { batches, loading } = useBatches();
+  const { batches, loading, refresh } = useBatches();
   const { profile } = useAuth();
   const [showAddModal, setShowAddModal] = useState(false);
   const [newBatch, setNewBatch] = useState({ name: '', description: '', startDate: format(new Date(), 'yyyy-MM-dd') });
-
   const [seeding, setSeeding] = useState(false);
 
   const handleSeedData = async () => {
@@ -32,64 +27,10 @@ export function Batches() {
     const toastId = toast.loading('Seeding data...');
 
     try {
-      const batchNames = ['Web Design Basics', 'Advanced React', 'Node.js Mastery', 'UI/UX Principles', 'Data Visualization'];
-      const studentNames = [
-        'Emma Watson', 'James Bond', 'Sara Connor', 'John Wick', 'Luke Skywalker',
-        'Leia Organa', 'Tony Stark', 'Bruce Wayne', 'Peter Parker', 'Diana Prince',
-        'Clark Kent', 'Barry Allen', 'Arthur Curry', 'Victor Stone', 'Natasha Romanoff'
-      ];
-
-      for (const bName of batchNames) {
-        // 1. Create Batch
-        const batchRef = await addDoc(collection(db, 'batches'), {
-          name: bName,
-          description: `Comprehensive course on ${bName}.`,
-          startDate: format(new Date(), 'yyyy-MM-dd'),
-          studentCount: 15,
-          averageAttendance: Math.floor(Math.random() * 20) + 80, // 80-100%
-          createdAt: new Date().toISOString(),
-        });
-
-        // 2. Create 12 Sessions
-        const sessionIds: string[] = [];
-        for (let i = 0; i < 12; i++) {
-          const sessionDate = new Date();
-          sessionDate.setDate(sessionDate.getDate() - ( (12 - i) * 7)); // Recent past sessions
-          const sRef = await addDoc(collection(db, 'sessions'), {
-            batchId: batchRef.id,
-            sessionNumber: i + 1,
-            date: sessionDate.toISOString(),
-            title: `Session ${i + 1}`,
-            attendanceCount: Math.floor(Math.random() * 5) + 10 // 10-15 present
-          });
-          sessionIds.push(sRef.id);
-        }
-
-        // 3. Create 15 Students
-        for (const sName of studentNames) {
-          const sRef = await addDoc(collection(db, 'students'), {
-            name: sName,
-            email: `${sName.toLowerCase().replace(' ', '.')}@example.com`,
-            batchId: batchRef.id,
-            attendancePercentage: Math.floor(Math.random() * 30) + 70, // 70-100%
-            createdAt: new Date().toISOString()
-          });
-
-          // 4. Create Random Attendance Records for recent sessions
-          for (const sId of sessionIds) {
-            // Mark attendance for sessions in the past
-            await addDoc(collection(db, 'attendance'), {
-              batchId: batchRef.id,
-              sessionId: sId,
-              studentId: sRef.id,
-              status: Math.random() > 0.15 ? 'present' : 'absent',
-              markedAt: new Date().toISOString()
-            });
-          }
-        }
-      }
-
+      const res = await fetch('/api/seed', { method: 'POST' });
+      if (!res.ok) throw new Error('Seed failed');
       toast.success('Dummy data seeded successfully!', { id: toastId });
+      refresh();
     } catch (err) {
       console.error(err);
       toast.error('Failed to seed data', { id: toastId });
@@ -103,40 +44,28 @@ export function Batches() {
     if (!newBatch.name) return;
 
     try {
-      const batchRef = await addDoc(collection(db, 'batches'), {
-        ...newBatch,
-        studentCount: 0,
-        averageAttendance: 0,
-        createdAt: new Date().toISOString(),
+      const res = await fetch('/api/batches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newBatch),
       });
-
-      // Automatically create 12 sessions for this batch
-      const sessionPromises = Array.from({ length: 12 }, (_, i) => {
-        const sessionDate = new Date(newBatch.startDate);
-        sessionDate.setDate(sessionDate.getDate() + (i * 7)); // Weekly sessions
-        return addDoc(collection(db, 'sessions'), {
-          batchId: batchRef.id,
-          sessionNumber: i + 1,
-          date: sessionDate.toISOString(),
-          title: `Session ${i + 1}`,
-          attendanceCount: 0
-        });
-      });
-
-      await Promise.all(sessionPromises);
+      if (!res.ok) throw new Error('Create failed');
       toast.success('Batch created with 12 sessions!');
       setShowAddModal(false);
       setNewBatch({ name: '', description: '', startDate: format(new Date(), 'yyyy-MM-dd') });
+      refresh();
     } catch (err) {
       toast.error('Failed to create batch');
     }
   };
 
-  const handleDeleteBatch = async (id: string) => {
+  const handleDeleteBatch = async (id: number) => {
     if (!window.confirm('Delete this batch? This will remove all students and sessions.')) return;
     try {
-      await deleteDoc(doc(db, 'batches', id));
+      const res = await fetch(`/api/batches/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Delete failed');
       toast.success('Batch deleted');
+      refresh();
     } catch (err) {
       toast.error('Failed to delete batch');
     }
@@ -147,7 +76,7 @@ export function Batches() {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="font-serif text-5xl text-[#1a1a1a] mb-2 tracking-tight">Batches</h1>
-          <p className="text-gray-500 font-sans tracking-wide uppercase text-xs font-bold font-sans">Institutional grouping & scheduling</p>
+          <p className="text-gray-500 font-sans tracking-wide uppercase text-xs font-bold">Institutional grouping & scheduling</p>
         </div>
         <div className="flex gap-4">
           {profile?.role === 'admin' && (

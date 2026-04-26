@@ -1,60 +1,50 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
-import { auth, db } from '../lib/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { createContext, useContext, useState, ReactNode } from 'react';
+
+interface UserProfile {
+  id: number;
+  username: string;
+  email: string;
+  fullName: string;
+  role: string;
+}
 
 interface AuthContextType {
-  user: User | null;
-  profile: any | null;
+  user: UserProfile | null;
+  profile: UserProfile | null;
   loading: boolean;
-  login: () => Promise<void>;
-  logout: () => Promise<void>;
+  loginWithCredentials: (username: string, password: string) => Promise<void>;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<any | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    return onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const docRef = doc(db, 'users', u.uid);
-        let docSnap = await getDoc(docRef);
-        
-        if (!docSnap.exists()) {
-          // Check if first user or admin
-          const isAdmin = u.email === 'naprku@gmail.com';
-          const newProfile = {
-            email: u.email,
-            fullName: u.displayName || 'User',
-            role: isAdmin ? 'admin' : 'trainer',
-            createdAt: new Date().toISOString()
-          };
-          await setDoc(docRef, newProfile);
-          setProfile(newProfile);
-        } else {
-          setProfile(docSnap.data());
-        }
-      } else {
-        setProfile(null);
-      }
-      setLoading(false);
+  const loginWithCredentials = async (username: string, password: string) => {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
     });
-  }, []);
 
-  const login = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Login failed');
+    }
+
+    const profile = await res.json();
+    setUser(profile);
+    setLoading(false);
   };
 
-  const logout = () => signOut(auth);
+  const logout = () => {
+    setUser(null);
+  };
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, profile: user, loading, loginWithCredentials, logout }}>
       {children}
     </AuthContext.Provider>
   );
