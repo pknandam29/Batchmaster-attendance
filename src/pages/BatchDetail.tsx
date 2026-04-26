@@ -176,6 +176,24 @@ export function BatchDetail() {
           <button className="px-6 py-3 border border-[#e5e5e0] text-[#1a1a1a] rounded-2xl flex items-center gap-2 hover:bg-gray-50 transition-all font-bold text-sm">
             <Download size={18} /> Export Report
           </button>
+          {profile?.role === 'admin' && (
+            <button 
+              onClick={async () => {
+                if (window.confirm('Delete this batch? This will remove everything related to it.')) {
+                  try {
+                    await deleteDoc(doc(db, 'batches', id!));
+                    toast.success('Batch deleted');
+                    window.location.href = '/batches';
+                  } catch (err) {
+                    toast.error('Failed to delete batch');
+                  }
+                }
+              }}
+              className="px-6 py-3 border border-red-100 text-red-500 rounded-2xl flex items-center gap-2 hover:bg-red-50 transition-all font-bold text-sm"
+            >
+              <Trash2 size={18} /> Delete Batch
+            </button>
+          )}
           <button 
             onClick={() => setShowAddStudent(true)}
             className="px-6 py-3 bg-[#1a1a1a] text-white rounded-2xl flex items-center gap-2 hover:bg-black transition-all shadow-lg shadow-[#00000020] font-bold text-sm"
