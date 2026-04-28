@@ -15,19 +15,8 @@ export function Batches() {
   const { batches, loading, refresh } = useBatches(searchTerm, showArchived);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newBatch, setNewBatch] = useState({ name: '', description: '', startDate: format(new Date(), 'yyyy-MM-dd') });
-  const [seeding, setSeeding] = useState(false);
 
-  const handleSeedData = async () => {
-    if (!window.confirm('This will generate 5 batches with 15 students each. Continue?')) return;
-    setSeeding(true);
-    const toastId = toast.loading('Seeding data...');
-    try {
-      await fetch('/api/seed', { method: 'POST' });
-      toast.success('Dummy data seeded!', { id: toastId });
-      refresh();
-    } catch { toast.error('Failed to seed data', { id: toastId }); }
-    finally { setSeeding(false); }
-  };
+
 
   const handleAddBatch = async (e: FormEvent) => {
     e.preventDefault();
@@ -68,9 +57,7 @@ export function Batches() {
         <div className="flex flex-wrap gap-3">
           {profile?.role === 'admin' && (
             <>
-              <button onClick={handleSeedData} disabled={seeding} className="px-5 py-3 border border-gray-200 text-[#1a1a1a] rounded-2xl flex items-center gap-2 hover:bg-gray-50 transition-all font-bold disabled:opacity-50 text-sm">
-                {seeding ? 'Seeding...' : 'Seed Data'}
-              </button>
+
               <button onClick={() => setShowAddModal(true)} className="px-5 py-3 bg-[#5A5A40] text-white rounded-2xl flex items-center gap-2 hover:bg-[#4a4a35] transition-all shadow-lg shadow-[#5A5A4020] font-bold text-sm">
                 <Plus size={18} /> New Batch
               </button>

@@ -288,49 +288,6 @@ async function startServer() {
     res.json(logs);
   });
 
-  // ── Seed ───────────────────────────────────────────────────────────────
-
-  app.post("/api/seed", (req, res) => {
-    const batchNames = ['Python Full Stack', 'Machine Learning', 'Cloud DevOps', 'Mobile App Dev', 'Cybersecurity'];
-    const studentNames = [
-      'Alice Johnson', 'Bob Smith', 'Charlie Brown', 'Daisy Miller', 'Edward Norton',
-      'Fiona Apple', 'George Lucas', 'Hannah Montana', 'Isaac Newton', 'Julia Roberts',
-      'Kevin Hart', 'Lisa Simpson', 'Mike Tyson', 'Nancy Drew', 'Oscar Wilde'
-    ];
-
-    const insertBatch = db.prepare("INSERT INTO batches (name, description, startDate, studentCount, averageAttendance) VALUES (?, ?, ?, 15, ?)");
-    const insertSession = db.prepare("INSERT INTO sessions (batchId, sessionNumber, date, title, attendanceCount) VALUES (?, ?, ?, ?, ?)");
-    const insertStudent = db.prepare("INSERT INTO students (name, email, batchId, attendancePercentage) VALUES (?, ?, ?, ?)");
-    const insertAttendance = db.prepare("INSERT INTO attendance (batchId, sessionId, studentId, status) VALUES (?, ?, ?, ?)");
-
-    const seedAll = db.transaction(() => {
-      for (const bName of batchNames) {
-        const avgAttendance = Math.floor(Math.random() * 20) + 80;
-        const batchResult = insertBatch.run(bName, `Comprehensive course on ${bName}.`, new Date().toISOString().split('T')[0], avgAttendance);
-        const batchId = batchResult.lastInsertRowid as number;
-
-        const sessionIds: number[] = [];
-        for (let i = 0; i < 12; i++) {
-          const sessionDate = new Date();
-          sessionDate.setDate(sessionDate.getDate() - ((12 - i) * 7));
-          const sResult = insertSession.run(batchId, i + 1, sessionDate.toISOString(), `Session ${i + 1}`, Math.floor(Math.random() * 5) + 10);
-          sessionIds.push(sResult.lastInsertRowid as number);
-        }
-
-        for (const sName of studentNames) {
-          const studentAttendance = Math.floor(Math.random() * 30) + 70;
-          const stResult = insertStudent.run(sName, `${sName.toLowerCase().replace(' ', '.')}@example.com`, batchId, studentAttendance);
-          const studentId = stResult.lastInsertRowid as number;
-          for (const sId of sessionIds) {
-            insertAttendance.run(batchId, sId, studentId, Math.random() > 0.15 ? 'present' : 'absent');
-          }
-        }
-      }
-    });
-
-    seedAll();
-    res.json({ success: true, message: 'Dummy data seeded successfully!' });
-  });
 
   // ── Health ─────────────────────────────────────────────────────────────
 

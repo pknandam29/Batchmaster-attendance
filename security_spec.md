@@ -1,4 +1,4 @@
-# Security Specification: BatchMaster Attendance
+# Security Specification: Cohort Attendance
 
 ## 1. Data Invariants
 - A Batch must have a name (max 100 chars) and a start date.
